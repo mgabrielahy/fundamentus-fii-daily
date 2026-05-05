@@ -2,35 +2,40 @@ name: Coletar FIIs do Fundamentus
 
 on:
   schedule:
-    - cron: '14 11 * * *' # 11:14 UTC (horário de Brasília: 8:14? Ajuste conforme necessário)
-  workflow_dispatch:
+    - cron: '0 11 * * *'   # 11:00 UTC = 8:00 BRT (ajuste conforme necessário)
+  workflow_dispatch:        # permite execução manual
 
 jobs:
-  coletar:
+  coleta:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Instalar Chrome
+
+      - name: Instalar Chrome e Chromedriver
         run: |
           sudo apt-get update
           sudo apt-get install -y wget curl unzip
-          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo dpkg -i google-chrome-stable_current_amd64.deb
+          # Instala o Google Chrome estável
+          wget -q -O google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome.deb
           sudo apt-get install -y -f
-      - name: Instalar Chromedriver
-        run: |
-          CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
-          CHROME_MAJOR=${CHROME_VERSION%%.*}
+          # Obtém versão do Chrome e baixa chromedriver correspondente
+          CHROME_VER=$(google-chrome --version | awk '{print $3}')
+          CHROME_MAJOR=${CHROME_VER%%.*}
           wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_MAJOR}.0.7778.96/linux64/chromedriver-linux64.zip" -O chromedriver.zip || \
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" -O chromedriver.zip
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chromedriver-linux64.zip" -O chromedriver.zip
           unzip -o chromedriver.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
           sudo chmod +x /usr/local/bin/chromedriver
-      - name: Instalar Python e dependências
+
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: pip install -r requirements.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
       - name: Executar script
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
