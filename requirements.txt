@@ -1,4 +1,4 @@
-selenium
-pandas
-gspread
-oauth2client
+selenium==4.15.2
+pandas==2.1.3
+gspread==5.12.0
+oauth2client==4.1.3
