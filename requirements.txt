@@ -1,5 +1,4 @@
-requests
+selenium
 pandas
-beautifulsoup4
-lxml
-openpyxl
+gspread
+oauth2client
