@@ -2,9 +2,10 @@ name: Coletar Dados FIIs
 
 on:
   schedule:
-    # Executa todos os dias às 8h da manhã (horário de Brasília)
     - cron: '0 11 * * *'  # 11:00 UTC = 8:00 BRT
-  workflow_dispatch:  # Permite execução manual também
+  workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   coleta:
@@ -21,25 +22,21 @@ jobs:
     
     - name: Instalar dependências
       run: |
-        pip install -r requirements.txt
+        pip install --upgrade pip
+        pip install requests pandas beautifulsoup4 lxml openpyxl html5lib
     
     - name: Executar script de coleta
       run: python script.py
+      env:
+        PYTHONUNBUFFERED: 1
     
     - name: Upload dos dados como artefato
       uses: actions/upload-artifact@v4
       with:
         name: dados-fii
         path: |
-          fii_dados_atuais.csv
-          fii_dados_atuais.json
-          fii_dados_atuais.xlsx
+          *.csv
+          *.json
+          *.xlsx
+          metadados.txt
         retention-days: 30
-    
-    - name: Commit e push dos dados (opcional)
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add -f fii_dados_atuais.csv
-        git commit -m "Atualização automática de dados FII - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sem alterações para commit"
-        git push || echo "Falha no push (pode ser permissão)"
