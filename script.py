@@ -1,163 +1,94 @@
-import requests
-import pandas as pd
-from bs4 import BeautifulSoup
 import time
-import random
-from datetime import datetime
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import os
 
-def extrair_fii():
-    """Extrai a tabela de FIIs do Fundamentus com headers realistas"""
-    
-    url = 'https://fundamentus.com.br/fii_buscaavancada.php'
-    
-    # Headers mais realistas (simula navegador real)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-    }
-    
-    # Dados do formulário
-    payload = {
-        'ffo_min': '',
-        'ffo_max': '',
-        'dy_min': '',
-        'dy_max': '',
-        'pvp_min': '',
-        'pvp_max': '',
-        'vmkt_min': '',
-        'vmkt_max': '',
-        'qtdim_min': '',
-        'qtdim_max': '',
-        'precom2_min': '',
-        'precom2_max': '',
-        'aluguelm2_min': '',
-        'aluguelm2_max': '',
-        'caprate_min': '',
-        'caprate_max': '',
-        'vacancia_min': '',
-        'vacancia_max': '',
-        'segmento': 'todos',
-        'submit': 'BUSCAR'
-    }
-    
-    # Usa session com timeout e retry
-    session = requests.Session()
-    
-    # Adiciona um pouco de delay para simular humano
-    time.sleep(random.uniform(1, 2))
-    
-    # Primeiro GET para obter cookies
-    print("🔄 Obtendo página inicial...")
-    response_get = session.get(url, headers=headers, timeout=30)
-    
-    if response_get.status_code != 200:
-        raise Exception(f"Erro no GET: {response_get.status_code}")
-    
-    print("🔄 Enviando formulário...")
-    # POST com os dados
-    response = session.post(url, data=payload, headers=headers, timeout=30)
-    
-    print(f"📡 Status: {response.status_code}")
-    
-    if response.status_code != 200:
-        raise Exception(f"Erro na requisição POST: {response.status_code}")
-    
-    # Verifica se a resposta contém a tabela
-    if 'Nenhum resultado encontrado' in response.text:
-        raise Exception("Nenhum resultado encontrado")
-    
-    # Salva HTML para debug (opcional)
-    with open('debug.html', 'w', encoding='utf-8') as f:
-        f.write(response.text)
-    
-    # Tenta ler a tabela com diferentes estratégias
-    tables = pd.read_html(response.text)
-    print(f"📊 {len(tables)} tabelas encontradas")
-    
-    # Procura a tabela correta
-    for i, table in enumerate(tables):
-        if len(table.columns) >= 10:
-            print(f"✅ Tabela {i} selecionada ({len(table.columns)} colunas)")
-            df = table.copy()
-            break
+# Configuração do Google Sheets (use variável de ambiente para a chave JSON)
+def enviar_para_sheets(df):
+    # Use a chave JSON que você fará upload no GitHub Secrets
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    if creds_json:
+        import json
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
-        raise Exception("Nenhuma tabela adequada encontrada")
-    
-    # Pega apenas as primeiras 13 colunas (ignora extras)
-    if len(df.columns) > 13:
-        df = df.iloc[:, :13]
-    
-    # Renomeia as colunas
-    colunas_padrao = [
-        'Papel', 'Segmento', 'Cotacao', 'FFO_Yield', 'Dividend_Yield',
-        'P_VP', 'Valor_Mercado', 'Liquidez', 'Qtd_Imoveis',
-        'Preco_m2', 'Aluguel_m2', 'Cap_Rate', 'Vacancia_Media'
-    ]
-    df.columns = colunas_padrao[:len(df.columns)]
-    
-    # Converte valores numéricos
-    for col in ['Cotacao', 'P_VP', 'Valor_Mercado', 'Liquidez', 'Qtd_Imoveis', 'Preco_m2', 'Aluguel_m2']:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.replace('R\$', '').str.replace(r'\.', '', regex=True).str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    
-    for col in ['FFO_Yield', 'Dividend_Yield', 'Cap_Rate', 'Vacancia_Media']:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.replace('%', '').str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0) / 100
-    
-    # Adiciona data da coleta
-    df['Data_Coleta'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    return df
+        # fallback para execução local (não recomendado no GitHub Actions)
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credenciais.json', scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key('1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw')
+    worksheet = sheet.worksheet('Dados')  # usa uma aba fixa, ou crie uma com timestamp
+    worksheet.clear()
+    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
 
-def main():
-    print("🔄 Iniciando extração de dados do Fundamentus...")
-    print("=" * 50)
-    
+def limpar_valor(valor):
+    if not isinstance(valor, str):
+        return float(valor) if valor else 0.0
+    valor = valor.strip()
+    if not valor:
+        return 0.0
+    valor = valor.replace('R$', '').strip()
+    if '%' in valor:
+        valor = valor.replace('%', '').strip()
+        valor = valor.replace(',', '.')
+        valor = valor.replace('.', '')  # remove pontos de milhar se houver
+        try:
+            return float(valor)
+        except:
+            return 0.0
+    if ',' in valor:
+        partes = valor.split(',')
+        ultima = partes[-1]
+        inteiro = ''.join(partes[:-1]).replace('.', '')
+        valor = f"{inteiro}.{ultima}"
+    else:
+        valor = valor.replace('.', '')
     try:
-        df = extrair_fii()
-        
-        print(f"\n✅ {len(df)} FIIs extraídos com sucesso!")
-        print(f"📊 Colunas: {list(df.columns)}")
-        
-        # Mostra primeiros resultados
-        print("\n📈 Primeiros 5 FIIs:")
-        print(df[['Papel', 'Segmento', 'Cotacao', 'FFO_Yield', 'Dividend_Yield', 'P_VP', 'Liquidez']].head(10).to_string())
-        
-        # Salva como CSV
-        df.to_csv('fii_dados_atuais.csv', index=False)
-        print("\n💾 Arquivo CSV salvo: fii_dados_atuais.csv")
-        
-        # Salva como JSON
-        df.to_json('fii_dados_atuais.json', orient='records', date_format='iso', force_ascii=False)
-        print("💾 Arquivo JSON salvo: fii_dados_atuais.json")
-        
-        # Salva como Excel
-        df.to_excel('fii_dados_atuais.xlsx', index=False)
-        print("💾 Arquivo Excel salvo: fii_dados_atuais.xlsx")
-        
-        # Cria arquivo de metadados
-        with open('metadados.txt', 'w', encoding='utf-8') as f:
-            f.write(f"Data da coleta: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total de FIIs: {len(df)}\n")
-            f.write(f"Colunas: {', '.join(df.columns)}\n")
-        
-        print("\n" + "=" * 50)
-        print("✅ Processo concluído com sucesso!")
-        
-    except Exception as e:
-        print(f"\n❌ Erro durante a execução: {e}")
-        raise
+        return float(valor)
+    except:
+        return 0.0
+
+def coletar_fii():
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.binary_location = "/usr/bin/google-chrome"
+
+    from selenium.webdriver.chrome.service import Service
+    service = Service('/usr/local/bin/chromedriver')
+    driver = webdriver.Chrome(service=service, options=options)
+    wait = WebDriverWait(driver, 20)
+
+    try:
+        driver.get('https://fundamentus.com.br/fii_buscaavancada.php')
+        btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '.buscar')))
+        btn.click()
+        time.sleep(5)
+        tabela = driver.find_element(By.ID, 'tabelaResultado')
+        linhas = tabela.find_elements(By.TAG_NAME, 'tr')
+        dados_brutos = []
+        for linha in linhas:
+            celulas = linha.find_elements(By.TAG_NAME, 'td')
+            if celulas:
+                dados_brutos.append([cel.text for cel in celulas[:13]])
+        colunas = ['Papel', 'Segmento', 'Cotação', 'FFO Yield', 'Dividend Yield', 'P/VP',
+                   'Valor de Mercado', 'Liquidez', 'Qtd de imóveis', 'Preço do m2',
+                   'Aluguel por m2', 'Cap Rate', 'Vacância Média']
+        df = pd.DataFrame(dados_brutos, columns=colunas)
+        for col in df.columns[2:]:
+            df[col] = df[col].apply(limpar_valor)
+        return df
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
-    main()
+    df = coletar_fii()
+    enviar_para_sheets(df)
+    print(f"✅ {len(df)} FIIs enviados para a planilha!")
