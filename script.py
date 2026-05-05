@@ -1,3 +1,4 @@
+import json
 import time
 import pandas as pd
 from selenium import webdriver
@@ -9,22 +10,24 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 
-# Configuração do Google Sheets (use variável de ambiente para a chave JSON)
+# ================= CONFIGURAÇÃO DO GOOGLE SHEETS =================
+SPREADSHEET_ID = '1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw'
+
 def enviar_para_sheets(df):
-    # Use a chave JSON que você fará upload no GitHub Secrets
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    # Lê a credencial a partir da variável de ambiente (secret do GitHub)
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    if creds_json:
-        import json
-        creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    else:
-        # fallback para execução local (não recomendado no GitHub Actions)
-        creds = ServiceAccountCredentials.from_json_keyfile_name('credenciais.json', scope)
+    if not creds_json:
+        raise Exception("GOOGLE_CREDENTIALS not found in environment variables")
+    creds_dict = json.loads(creds_json)
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
-    sheet = client.open_by_key('1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw')
-    worksheet = sheet.worksheet('Dados')  # usa uma aba fixa, ou crie uma com timestamp
-    worksheet.clear()
+    sheet = client.open_by_key(SPREADSHEET_ID)
+    try:
+        worksheet = sheet.worksheet('Dados')
+        worksheet.clear()
+    except:
+        worksheet = sheet.add_worksheet(title='Dados', rows=str(len(df)+1), cols=str(len(df.columns)))
     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
 
 def limpar_valor(valor):
@@ -37,7 +40,11 @@ def limpar_valor(valor):
     if '%' in valor:
         valor = valor.replace('%', '').strip()
         valor = valor.replace(',', '.')
-        valor = valor.replace('.', '')  # remove pontos de milhar se houver
+        # remove pontos de milhar (caso existam)
+        if '.' in valor:
+            partes = valor.split('.')
+            if len(partes) > 1 and partes[-1].isdigit():
+                valor = ''.join(partes[:-1]) + '.' + partes[-1]
         try:
             return float(valor)
         except:
@@ -60,18 +67,16 @@ def coletar_fii():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.binary_location = "/usr/bin/google-chrome"
-
     from selenium.webdriver.chrome.service import Service
     service = Service('/usr/local/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=options)
     wait = WebDriverWait(driver, 20)
-
     try:
         driver.get('https://fundamentus.com.br/fii_buscaavancada.php')
         btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '.buscar')))
         btn.click()
         time.sleep(5)
-        tabela = driver.find_element(By.ID, 'tabelaResultado')
+        tabela = wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
         linhas = tabela.find_elements(By.TAG_NAME, 'tr')
         dados_brutos = []
         for linha in linhas:
