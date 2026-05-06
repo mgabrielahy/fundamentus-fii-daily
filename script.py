@@ -1,16 +1,14 @@
 import json
 import time
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
+from bs4 import BeautifulSoup
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 
 SPREADSHEET_ID = '1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw'
+SCRAPERAPI_KEY = os.environ.get('SCRAPERAPI_KEY')
 
 def enviar_para_sheets(df):
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
@@ -58,72 +56,51 @@ def limpar_valor(valor):
     except:
         return 0.0
 
-def coletar_fii():
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1920,1080')
-    options.binary_location = "/usr/bin/google-chrome"
-    from selenium.webdriver.chrome.service import Service
-    service = Service('/usr/local/bin/chromedriver')
-    driver = webdriver.Chrome(service=service, options=options)
-    wait = WebDriverWait(driver, 30)  # aumento para 30 segundos
-    try:
-        print("🔍 Acessando página...")
-        driver.get('https://fundamentus.com.br/fii_buscaavancada.php')
-        time.sleep(3)
-
-        print(f"📄 Título da página: {driver.title}")
-
-        # Múltiplos seletores possíveis
-        seletores = ['.buscar', 'input[type="submit"]', 'input[value="BUSCAR"]', 'button[type="submit"]']
-        btn = None
-        for seletor in seletores:
-            try:
-                btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, seletor)))
-                print(f"✅ Botão encontrado com seletor: {seletor}")
+def coletar_fii_via_scraperapi():
+    # URL de destino
+    target_url = "https://fundamentus.com.br/fii_buscaavancada.php"
+    # Monta a URL da ScraperAPI com parâmetros para renderizar JS e aguardar 5 segundos
+    scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={target_url}&render=true&wait=5000"
+    
+    print(f"🔍 Acessando via ScraperAPI...")
+    response = requests.get(scraper_url, timeout=60)
+    if response.status_code != 200:
+        raise Exception(f"Erro na ScraperAPI: {response.status_code}")
+    
+    html = response.text
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Encontra a tabela pelo ID
+    tabela = soup.find('table', id='tabelaResultado')
+    if not tabela:
+        # Fallback: encontra a primeira tabela com pelo menos 10 colunas
+        tabelas = soup.find_all('table')
+        for t in tabelas:
+            cabecalhos = t.find_all('th')
+            if len(cabecalhos) >= 10:
+                tabela = t
                 break
-            except:
-                continue
-
-        if not btn:
-            # Salva debug
-            driver.save_screenshot('debug.png')
-            with open('debug.html', 'w', encoding='utf-8') as f:
-                f.write(driver.page_source)
-            raise Exception("Botão BUSCAR não encontrado após tentar vários seletores")
-
-        btn.click()
-        print("🖱️ Botão clicado")
-
-        # Aguarda a tabela pelo ID
-        tabela = wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
-        print("✅ Tabela carregada")
-        time.sleep(2)
-
-        linhas = tabela.find_elements(By.TAG_NAME, 'tr')
-        dados_brutos = []
-        for linha in linhas:
-            celulas = linha.find_elements(By.TAG_NAME, 'td')
-            if celulas:
-                dados_brutos.append([cel.text for cel in celulas[:13]])
-
-        colunas = ['Papel', 'Segmento', 'Cotação', 'FFO Yield', 'Dividend Yield', 'P/VP',
-                   'Valor de Mercado', 'Liquidez', 'Qtd de imóveis', 'Preço do m2',
-                   'Aluguel por m2', 'Cap Rate', 'Vacância Média']
-        df = pd.DataFrame(dados_brutos, columns=colunas)
-        for col in df.columns[2:]:
-            df[col] = df[col].apply(limpar_valor)
-        return df
-    except Exception as e:
-        print(f"❌ Erro durante a coleta: {e}")
-        raise
-    finally:
-        driver.quit()
+        if not tabela:
+            raise Exception("Tabela não encontrada na página")
+    
+    linhas = tabela.find_all('tr')
+    dados_brutos = []
+    for linha in linhas:
+        celulas = linha.find_all('td')
+        if celulas:
+            dados_brutos.append([cel.get_text(strip=True) for cel in celulas[:13]])
+    
+    colunas = ['Papel', 'Segmento', 'Cotação', 'FFO Yield', 'Dividend Yield', 'P/VP',
+               'Valor de Mercado', 'Liquidez', 'Qtd de imóveis', 'Preço do m2',
+               'Aluguel por m2', 'Cap Rate', 'Vacância Média']
+    df = pd.DataFrame(dados_brutos, columns=colunas)
+    for col in df.columns[2:]:
+        df[col] = df[col].apply(limpar_valor)
+    return df
 
 if __name__ == "__main__":
-    df = coletar_fii()
+    if not SCRAPERAPI_KEY:
+        raise Exception("SCRAPERAPI_KEY não definida no ambiente")
+    df = coletar_fii_via_scraperapi()
     enviar_para_sheets(df)
     print(f"✅ {len(df)} FIIs enviados para a planilha!")
