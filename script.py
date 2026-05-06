@@ -65,25 +65,39 @@ def coletar_fii():
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
     
-    # Usa ScraperAPI como proxy
-    proxy_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&method=post&keep_headers=true"
+    # Monta URL do ScraperAPI (usando método POST)
+    proxy_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&method=post&render=false"
     
-    # Envia o POST com os dados
+    print("🔁 Enviando requisição via ScraperAPI...")
     response = requests.post(proxy_url, data=payload, headers=headers, timeout=60)
     
+    print(f"📡 Status code: {response.status_code}")
+    
     if response.status_code != 200:
-        raise Exception(f"Erro na ScraperAPI: {response.status_code}")
+        raise Exception(f"ScraperAPI retornou {response.status_code}")
     
     html = response.text
     
-    # Salva debug em caso de falha
+    # Salva HTML completo (para artefato)
     with open('debug.html', 'w', encoding='utf-8') as f:
         f.write(html)
     
+    # Imprime primeiros 1000 caracteres no log (para diagnóstico rápido)
+    print("\n🔍 INÍCIO DO HTML RECEBIDO (1000 caracteres):")
+    print(html[:1000])
+    print("\n...\n")
+    
     soup = BeautifulSoup(html, 'html.parser')
     tabela = soup.find('table', id='tabelaResultado')
+    
     if not tabela:
-        raise Exception("Tabela não encontrada. Verifique debug.html")
+        # Se não achou a tabela, tenta encontrar alguma tabela grande
+        todas = soup.find_all('table')
+        print(f"🔎 Nenhuma tabela com id='tabelaResultado'. Encontradas {len(todas)} tabelas.")
+        for i, t in enumerate(todas):
+            linhas = len(t.find_all('tr'))
+            print(f"  Tabela {i}: {linhas} linhas")
+        raise Exception("Tabela #tabelaResultado não encontrada. Verifique o conteúdo do debug.html")
     
     linhas = tabela.find_all('tr')
     dados_brutos = []
@@ -101,6 +115,8 @@ def coletar_fii():
     return df
 
 if __name__ == "__main__":
+    if not SCRAPERAPI_KEY:
+        raise Exception("SCRAPERAPI_KEY não encontrada")
     df = coletar_fii()
     enviar_para_sheets(df)
     print(f"✅ {len(df)} FIIs enviados para a planilha!")
