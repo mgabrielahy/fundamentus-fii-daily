@@ -1,8 +1,8 @@
-name: Coletar FIIs do Fundamentus
+name: Coletar FIIs do Fundamentus (undetected)
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # ajuste o horário conforme necessário
+    - cron: '0 11 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Instalar Chrome e chromedriver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget curl unzip jq
+          # Instala Chrome stable
+          wget -q -O google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome.deb || sudo apt-get install -y -f
+          # Obtém versão
+          CHROME_VER=$(google-chrome --version | awk '{print $3}')
+          echo "Chrome version: $CHROME_VER"
+          # Instala chromedriver compatível (usado pelo undetected)
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VER/linux64/chromedriver-linux64.zip" -O chromedriver.zip || \
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER%%.*}.0.7778.96/linux64/chromedriver-linux64.zip" -O chromedriver.zip
+          unzip -o chromedriver.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+          sudo chmod +x /usr/local/bin/chromedriver
+          echo "Chromedriver installed"
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -22,12 +40,4 @@ jobs:
       - name: Executar script
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
         run: python script.py
-
-      - name: Upload do HTML de debug (em caso de falha)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-html
-          path: debug.html
