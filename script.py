@@ -1,11 +1,10 @@
 import json
-import time
-import pandas as pd
+import os
 import requests
 from bs4 import BeautifulSoup
+import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import os
 
 SPREADSHEET_ID = '1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw'
 SCRAPERAPI_KEY = os.environ.get('SCRAPERAPI_KEY')
@@ -57,31 +56,77 @@ def limpar_valor(valor):
         return 0.0
 
 def coletar_fii_via_scraperapi():
-    # URL de destino
     target_url = "https://fundamentus.com.br/fii_buscaavancada.php"
-    # Monta a URL da ScraperAPI com parâmetros para renderizar JS e aguardar 5 segundos
-    scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={target_url}&render=true&wait=5000"
+    # Parâmetros: render=false (usaremos nosso próprio formulário POST) ou render=true?
+    # Vamos tentar primeiro com o POST simulando o clique no botão.
+    # Melhor: usar a URL de busca com parâmetros para já receber a tabela?
+    # Alternativa: usar a URL de resultado após envio do formulário.
     
-    print(f"🔍 Acessando via ScraperAPI...")
-    response = requests.get(scraper_url, timeout=60)
+    # A ScraperAPI permite enviar POST também. Vamos tentar realizar o POST diretamente.
+    # Construir payload do formulário.
+    payload = {
+        'ffo_min': '',
+        'ffo_max': '',
+        'dy_min': '',
+        'dy_max': '',
+        'pvp_min': '',
+        'pvp_max': '',
+        'vmkt_min': '',
+        'vmkt_max': '',
+        'qtdim_min': '',
+        'qtdim_max': '',
+        'precom2_min': '',
+        'precom2_max': '',
+        'aluguelm2_min': '',
+        'aluguelm2_max': '',
+        'caprate_min': '',
+        'caprate_max': '',
+        'vacancia_min': '',
+        'vacancia_max': '',
+        'segmento': 'todos',
+        'submit': 'BUSCAR'
+    }
+    
+    # Usar ScraperAPI para enviar POST
+    api_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={target_url}&render=true&wait=10000&keep_headers=true"
+    # Como enviar POST com dados?
+    # ScraperAPI suporta método POST através de parâmetro "method=post" e data no corpo.
+    # Vamos usar a URL com method=post e enviar o payload como form data.
+    post_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={target_url}&method=post&render=true&wait=10000"
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    response = requests.post(post_url, data=payload, headers=headers, timeout=60)
+    
     if response.status_code != 200:
         raise Exception(f"Erro na ScraperAPI: {response.status_code}")
     
     html = response.text
+    # Salvar HTML para debug em caso de falha
+    with open('debug.html', 'w', encoding='utf-8') as f:
+        f.write(html)
+    
     soup = BeautifulSoup(html, 'html.parser')
     
-    # Encontra a tabela pelo ID
+    # Tenta encontrar a tabela por ID
     tabela = soup.find('table', id='tabelaResultado')
     if not tabela:
-        # Fallback: encontra a primeira tabela com pelo menos 10 colunas
-        tabelas = soup.find_all('table')
-        for t in tabelas:
-            cabecalhos = t.find_all('th')
-            if len(cabecalhos) >= 10:
-                tabela = t
-                break
+        # Tenta encontrar pela classe ou pela primeira tabela com th
+        tabela = soup.find('table', class_='resultado')
         if not tabela:
-            raise Exception("Tabela não encontrada na página")
+            todas_tabelas = soup.find_all('table')
+            for t in todas_tabelas:
+                if len(t.find_all('th')) >= 10:
+                    tabela = t
+                    break
+        if not tabela:
+            # Talvez a página tenha mostrado erro ou ainda esteja carregando
+            # Verifica se há captcha ou mensagem de proteção
+            if "Just a moment" in html:
+                raise Exception("ScraperAPI não conseguiu passar do Cloudflare - página de verificação")
+            elif "Nenhum resultado encontrado" in html:
+                # Não há resultados? Talvez POST não funcionou.
+                raise Exception("Nenhum resultado encontrado - payload pode estar incorreto")
+            else:
+                raise Exception("Tabela não encontrada na página. HTML salvo como debug.html")
     
     linhas = tabela.find_all('tr')
     dados_brutos = []
@@ -100,7 +145,7 @@ def coletar_fii_via_scraperapi():
 
 if __name__ == "__main__":
     if not SCRAPERAPI_KEY:
-        raise Exception("SCRAPERAPI_KEY não definida no ambiente")
+        raise Exception("SCRAPERAPI_KEY não definida")
     df = coletar_fii_via_scraperapi()
     enviar_para_sheets(df)
     print(f"✅ {len(df)} FIIs enviados para a planilha!")
