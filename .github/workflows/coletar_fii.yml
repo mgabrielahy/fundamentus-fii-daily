@@ -11,23 +11,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Chrome e chromedriver
+      - name: Instalar Chrome 122 (compatível)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl unzip jq
-          # Instala Chrome stable
-          wget -q -O google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo dpkg -i google-chrome.deb || sudo apt-get install -y -f
-          # Obtém versão
-          CHROME_VER=$(google-chrome --version | awk '{print $3}')
-          echo "Chrome version: $CHROME_VER"
-          # Instala chromedriver compatível (usado pelo undetected)
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VER/linux64/chromedriver-linux64.zip" -O chromedriver.zip || \
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER%%.*}.0.7778.96/linux64/chromedriver-linux64.zip" -O chromedriver.zip
-          unzip -o chromedriver.zip
+          sudo apt-get install -y wget curl unzip
+          # Baixar Chrome 122 (versão estável)
+          wget -q https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_122.0.6261.129-1_amd64.deb
+          sudo dpkg -i google-chrome-stable_122.0.6261.129-1_amd64.deb || sudo apt-get install -y -f
+          google-chrome --version
+
+      - name: Instalar chromedriver 122
+        run: |
+          wget -q https://storage.googleapis.com/chrome-for-testing-public/122.0.6261.129/linux64/chromedriver-linux64.zip
+          unzip chromedriver-linux64.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
           sudo chmod +x /usr/local/bin/chromedriver
-          echo "Chromedriver installed"
+          chromedriver --version
 
       - name: Configurar Python
         uses: actions/setup-python@v5
