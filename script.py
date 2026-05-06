@@ -10,14 +10,12 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 
-# ================= CONFIGURAÇÃO DO GOOGLE SHEETS =================
 SPREADSHEET_ID = '1bjr8ZMSV2RL3c7GQOLduAmb4NNZ3blpoulzbSknRmtw'
 
 def enviar_para_sheets(df):
-    # Lê a credencial a partir da variável de ambiente (secret do GitHub)
     creds_json = os.environ.get('GOOGLE_CREDENTIALS')
     if not creds_json:
-        raise Exception("GOOGLE_CREDENTIALS not found in environment variables")
+        raise Exception("GOOGLE_CREDENTIALS not found")
     creds_dict = json.loads(creds_json)
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
@@ -40,7 +38,6 @@ def limpar_valor(valor):
     if '%' in valor:
         valor = valor.replace('%', '').strip()
         valor = valor.replace(',', '.')
-        # remove pontos de milhar (caso existam)
         if '.' in valor:
             partes = valor.split('.')
             if len(partes) > 1 and partes[-1].isdigit():
@@ -66,23 +63,56 @@ def coletar_fii():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
     options.binary_location = "/usr/bin/google-chrome"
     from selenium.webdriver.chrome.service import Service
     service = Service('/usr/local/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=options)
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 30)  # aumentado para 30 segundos
     try:
+        print("🔍 Acessando página...")
         driver.get('https://fundamentus.com.br/fii_buscaavancada.php')
-        btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, '.buscar')))
+        time.sleep(3)
+        
+        # Imprime o título para debug
+        print(f"📄 Título da página: {driver.title}")
+        
+        # Tenta vários seletores possíveis para o botão
+        seletores = ['.buscar', 'input[type="submit"]', 'input[value="BUSCAR"]', 'button[type="submit"]']
+        btn = None
+        for seletor in seletores:
+            try:
+                btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, seletor)))
+                print(f"✅ Botão encontrado com seletor: {seletor}")
+                break
+            except:
+                continue
+        
+        if not btn:
+            # Se não encontrou, salva screenshot e HTML para debug
+            driver.save_screenshot('debug.png')
+            with open('debug.html', 'w', encoding='utf-8') as f:
+                f.write(driver.page_source)
+            raise Exception("Botão BUSCAR não encontrado após tentar vários seletores")
+        
         btn.click()
-        time.sleep(5)
+        print("🖱️ Botão clicado")
+        
+        # Aguarda a tabela (usa o ID específico)
         tabela = wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
+        print("✅ Tabela carregada")
+        
+        # Pequena pausa adicional para garantir que os dados estejam lá
+        time.sleep(2)
+        
         linhas = tabela.find_elements(By.TAG_NAME, 'tr')
         dados_brutos = []
         for linha in linhas:
             celulas = linha.find_elements(By.TAG_NAME, 'td')
             if celulas:
                 dados_brutos.append([cel.text for cel in celulas[:13]])
+        
         colunas = ['Papel', 'Segmento', 'Cotação', 'FFO Yield', 'Dividend Yield', 'P/VP',
                    'Valor de Mercado', 'Liquidez', 'Qtd de imóveis', 'Preço do m2',
                    'Aluguel por m2', 'Cap Rate', 'Vacância Média']
@@ -90,6 +120,9 @@ def coletar_fii():
         for col in df.columns[2:]:
             df[col] = df[col].apply(limpar_valor)
         return df
+    except Exception as e:
+        print(f"Erro durante a coleta: {e}")
+        raise
     finally:
         driver.quit()
 
