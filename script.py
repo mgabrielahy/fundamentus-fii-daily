@@ -69,16 +69,15 @@ def coletar_fii():
     from selenium.webdriver.chrome.service import Service
     service = Service('/usr/local/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=options)
-    wait = WebDriverWait(driver, 30)  # aumentado para 30 segundos
+    wait = WebDriverWait(driver, 30)  # aumento para 30 segundos
     try:
         print("🔍 Acessando página...")
         driver.get('https://fundamentus.com.br/fii_buscaavancada.php')
         time.sleep(3)
-        
-        # Imprime o título para debug
+
         print(f"📄 Título da página: {driver.title}")
-        
-        # Tenta vários seletores possíveis para o botão
+
+        # Múltiplos seletores possíveis
         seletores = ['.buscar', 'input[type="submit"]', 'input[value="BUSCAR"]', 'button[type="submit"]']
         btn = None
         for seletor in seletores:
@@ -88,31 +87,29 @@ def coletar_fii():
                 break
             except:
                 continue
-        
+
         if not btn:
-            # Se não encontrou, salva screenshot e HTML para debug
+            # Salva debug
             driver.save_screenshot('debug.png')
             with open('debug.html', 'w', encoding='utf-8') as f:
                 f.write(driver.page_source)
             raise Exception("Botão BUSCAR não encontrado após tentar vários seletores")
-        
+
         btn.click()
         print("🖱️ Botão clicado")
-        
-        # Aguarda a tabela (usa o ID específico)
+
+        # Aguarda a tabela pelo ID
         tabela = wait.until(EC.presence_of_element_located((By.ID, 'tabelaResultado')))
         print("✅ Tabela carregada")
-        
-        # Pequena pausa adicional para garantir que os dados estejam lá
         time.sleep(2)
-        
+
         linhas = tabela.find_elements(By.TAG_NAME, 'tr')
         dados_brutos = []
         for linha in linhas:
             celulas = linha.find_elements(By.TAG_NAME, 'td')
             if celulas:
                 dados_brutos.append([cel.text for cel in celulas[:13]])
-        
+
         colunas = ['Papel', 'Segmento', 'Cotação', 'FFO Yield', 'Dividend Yield', 'P/VP',
                    'Valor de Mercado', 'Liquidez', 'Qtd de imóveis', 'Preço do m2',
                    'Aluguel por m2', 'Cap Rate', 'Vacância Média']
@@ -121,7 +118,7 @@ def coletar_fii():
             df[col] = df[col].apply(limpar_valor)
         return df
     except Exception as e:
-        print(f"Erro durante a coleta: {e}")
+        print(f"❌ Erro durante a coleta: {e}")
         raise
     finally:
         driver.quit()
