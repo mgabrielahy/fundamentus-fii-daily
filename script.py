@@ -58,7 +58,6 @@ def limpar_valor(valor):
         return 0.0
 
 def coletar_fii():
-    # Configurações para undetected-chromedriver
     options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -67,12 +66,8 @@ def coletar_fii():
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
     
-    # Usa o Chrome já instalado no sistema (via workflow)
-    driver = uc.Chrome(
-        options=options,
-        version_main=122,   # ajuste conforme a versão do Chrome instalada
-        use_subprocess=True
-    )
+    # Não especifica version_main, deixa o undetected descobrir
+    driver = uc.Chrome(options=options, use_subprocess=True)
     wait = WebDriverWait(driver, 30)
     
     try:
