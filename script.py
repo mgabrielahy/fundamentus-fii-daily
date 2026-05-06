@@ -1,6 +1,7 @@
 import json
 import os
 import requests
+import time
 from bs4 import BeautifulSoup
 import pandas as pd
 import gspread
@@ -55,49 +56,50 @@ def limpar_valor(valor):
     except:
         return 0.0
 
-def coletar_fii():
+def coletar_fii_via_scraperapi_js():
     url = 'https://fundamentus.com.br/fii_buscaavancada.php'
-    payload = {
-        'negociados': 'on',
-        'submit': 'BUSCAR'
-    }
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    
+    # Código JavaScript a ser injetado na página
+    js_code = """
+    (function() {
+        var btn = document.querySelector('.buscar');
+        if (btn) {
+            btn.click();
+            return 'clicked';
+        } else {
+            return 'button_not_found';
+        }
+    })();
+    """
+    
+    # Parâmetros da ScraperAPI
+    params = {
+        'api_key': SCRAPERAPI_KEY,
+        'url': url,
+        'render': 'true',
+        'js_code': js_code,
+        'wait': 5000   # aguarda 5 segundos após o JS
     }
     
-    # Monta URL do ScraperAPI (usando método POST)
-    proxy_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={url}&method=post&render=false"
-    
-    print("🔁 Enviando requisição via ScraperAPI...")
-    response = requests.post(proxy_url, data=payload, headers=headers, timeout=60)
+    api_url = "http://api.scraperapi.com"
+    print("🔁 Enviando requisição com renderização e JS...")
+    response = requests.get(api_url, params=params, timeout=90)
     
     print(f"📡 Status code: {response.status_code}")
-    
     if response.status_code != 200:
-        raise Exception(f"ScraperAPI retornou {response.status_code}")
+        raise Exception(f"ScraperAPI falhou: {response.status_code}")
     
     html = response.text
-    
-    # Salva HTML completo (para artefato)
     with open('debug.html', 'w', encoding='utf-8') as f:
         f.write(html)
     
-    # Imprime primeiros 1000 caracteres no log (para diagnóstico rápido)
-    print("\n🔍 INÍCIO DO HTML RECEBIDO (1000 caracteres):")
+    print("🔍 INÍCIO DO HTML (1000 caracteres):")
     print(html[:1000])
-    print("\n...\n")
     
     soup = BeautifulSoup(html, 'html.parser')
     tabela = soup.find('table', id='tabelaResultado')
-    
     if not tabela:
-        # Se não achou a tabela, tenta encontrar alguma tabela grande
-        todas = soup.find_all('table')
-        print(f"🔎 Nenhuma tabela com id='tabelaResultado'. Encontradas {len(todas)} tabelas.")
-        for i, t in enumerate(todas):
-            linhas = len(t.find_all('tr'))
-            print(f"  Tabela {i}: {linhas} linhas")
-        raise Exception("Tabela #tabelaResultado não encontrada. Verifique o conteúdo do debug.html")
+        raise Exception("Tabela não encontrada mesmo após renderização com clique.")
     
     linhas = tabela.find_all('tr')
     dados_brutos = []
@@ -117,6 +119,6 @@ def coletar_fii():
 if __name__ == "__main__":
     if not SCRAPERAPI_KEY:
         raise Exception("SCRAPERAPI_KEY não encontrada")
-    df = coletar_fii()
+    df = coletar_fii_via_scraperapi_js()
     enviar_para_sheets(df)
     print(f"✅ {len(df)} FIIs enviados para a planilha!")
