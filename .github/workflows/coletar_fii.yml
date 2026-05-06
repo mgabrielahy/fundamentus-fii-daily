@@ -2,7 +2,7 @@ name: Coletar FIIs do Fundamentus
 
 on:
   schedule:
-    - cron: '0 11 * * *'
+    - cron: '0 11 * * *'   # ajuste o horário conforme necessário
   workflow_dispatch:
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
           SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
         run: python script.py
 
-      - name: Upload debug HTML
+      - name: Upload do HTML de debug (em caso de falha)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
