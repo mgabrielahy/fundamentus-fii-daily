@@ -2,8 +2,8 @@ name: Coletar FIIs do Fundamentus
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 11:00 UTC = 8:00 BRT (ajuste conforme necessário)
-  workflow_dispatch:        # permite execução manual
+    - cron: '0 11 * * *'
+  workflow_dispatch:
 
 jobs:
   coleta:
@@ -14,19 +14,22 @@ jobs:
       - name: Instalar Chrome e Chromedriver
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl unzip
-          # Instala o Google Chrome estável
+          sudo apt-get install -y wget curl unzip jq
+          # Instala Google Chrome estável
           wget -q -O google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo dpkg -i google-chrome.deb
-          sudo apt-get install -y -f
-          # Obtém versão do Chrome e baixa chromedriver correspondente
-          CHROME_VER=$(google-chrome --version | awk '{print $3}')
-          CHROME_MAJOR=${CHROME_VER%%.*}
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_MAJOR}.0.7778.96/linux64/chromedriver-linux64.zip" -O chromedriver.zip || \
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chromedriver-linux64.zip" -O chromedriver.zip
+          sudo dpkg -i google-chrome.deb || sudo apt-get install -y -f
+          # Verifica versão e baixa chromedriver compatível usando a API de descoberta
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}')
+          echo "Chrome version: $CHROME_VERSION"
+          # Obtém o build mais recente para a versão major
+          MAJOR_VERSION=${CHROME_VERSION%%.*}
+          # Tenta baixar a versão exata; se falhar, usa a major
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip" -O chromedriver.zip || \
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/${MAJOR_VERSION}.0.7778.96/linux64/chromedriver-linux64.zip" -O chromedriver.zip
           unzip -o chromedriver.zip
           sudo mv chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
           sudo chmod +x /usr/local/bin/chromedriver
+          echo "Chromedriver installed at: $(which chromedriver)"
 
       - name: Configurar Python
         uses: actions/setup-python@v5
